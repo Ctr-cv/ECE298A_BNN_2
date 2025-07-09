@@ -20,7 +20,7 @@ module tt_um_example (
     reg out;
   // A Very complex function 
     always @(posedge clk) begin 
-        out <= a & b; 
+        out <= ui_in[0] & ui_in[1]; 
     end
 
 
