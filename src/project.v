@@ -17,10 +17,10 @@ module tt_um_example (
 );
 
     reg a,b;
-    wire out;
+    reg out;
   // A Very complex function 
     always @(posedge clk) begin 
-        out = a & b; 
+        out <= a & b; 
     end
 
 
