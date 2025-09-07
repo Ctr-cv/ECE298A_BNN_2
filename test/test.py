@@ -3,84 +3,137 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
-from cocotb.triggers import RisingEdge
-import csv
-import os
+from cocotb.triggers import RisingEdge, Timer
+from cocotb.result import TestFailure
+import random
 
+# ---------------------- This test needs to be updated to the actual project -------------------------
+# 1. test using static weight, 3 sets of testing data
+# 2. test using partially loaded weight onto neuron 1 & 2, 3 sets
+# 3. test using fully loaded weight onto all neurons, 3 sets 
+# 4. test on debugging outputs and intermediate process, 1 set
 @cocotb.test()
-async def test_project(dut):
-    dut._log.info("Start")
-
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, units="us")
+async def test_tt_um_BNN(dut): 
+    # Start clock (100MHz)
+    clock = Clock(dut.clk, 10, units="ns")
     cocotb.start_soon(clock.start())
-
-    # Reset
-    dut._log.info("Reset")
-    dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
-    dut.rst_n.value = 1
-
-    dut._log.info("Test project behavior")
-
-    # Set the input values you want to test
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
-
-    # Wait for one clock cycle to see the output values
-    await ClockCycles(dut.clk, 1)
-
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 0
-
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
-
-
-
-@cocotb.test()
-async def test_with_vectors(dut):
-    dut._log.info("Start")
-
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, units="us")
-    cocotb.start_soon(clock.start())
-
-    # Reset
-    dut._log.info("Reset")
-    dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 1)
-
-    dut._log.info("Test project behavior")
     
-    vector_file = os.path.join(os.path.dirname(__file__), "vectors.csv")
+    # Initialize signals
+    dut.ui_in.value = 0
+    dut.uio_in.value = 0
+    dut.ena.value = 1
+    dut.rst_n.value = 0
+    
+    # Reset for 2 cycles
+    await Timer(2, units="ns")
+    dut.rst_n.value = 1
+    await Timer(2, units="ns")
+    
+    # --------------------------
+    # Test 1: Verify Hardcoded Weights
+    # --------------------------
+    await test_hardcoded_weights(dut)
+    
+    # --------------------------
+    # Test 2: Dynamic Weight Loading
+    # --------------------------
+    await test_weight_loading(dut)
 
-    with open(vector_file, "r") as f:
-        reader = csv.DictReader(f)
-        for i, row in enumerate(reader):
-            # Apply input values to the DUT
-            a = int(row['a'])
-            b = int(row['b'])
+async def test_hardcoded_weights(dut):
+    # Test initial hard-coded weights
+    cocotb.log.info(f"Testing hardcoded weights")
+    
+    # A single test 0b11110000 is provided, more could be added later
+    # Test pattern that should activate neuron 0 (weights = 11110000)
+    stop_patterns = [
+        0b00000000,  
+        0b00000001,  
+        0b00000010, 
+        0b00011011
+    ]
 
-            # Pack input bits into full input bus
-            dut.ui_in.value = (b << 1) | a
+    right_patterns = [
+        0b10000111,
+        0b10001110,
+    ]
 
-            # Wait for the result to settle
-            await ClockCycles(dut.clk, 2)
+    forward_patterns = [
+        0b00011101,
+        0b00011100,
+        0b00111000,
+        0b00011000
+    ]
 
-            # Check the output
-            expected = int(row['out'])
-            actual = int(dut.uo_out[0].value)
-            
-            dut._log.info(f"Vector {i}: a={dut.ui_in.value}, b={dut.ui_in.value}, Got out={actual}, expecting out={expected}")
-            assert actual == expected, f"Vector {i}: {row} => Got out={actual}, expected {expected}"
+    left_patterns = [
+        0b01100000,
+        0b11110000
+    ]
+    
+    for i in range(len(stop_patterns)):
+        dut.ui_in.value = stop_patterns[i]
+        await RisingEdge(dut.clk)  # Cycle 1 post-reset
+        await RisingEdge(dut.clk)  # Cycle 2 post-rese
+        await RisingEdge(dut.clk)  # Cycle 3 just in case
+        # cocotb.log.info(f"index:{format(i, '08b')} layer3 [7:0]:{dut.uo_out.value[4:7]}")
+        assert int(dut.uo_out.value[4:7]) == 0b1000, f"Hardcoded weight test failed. Got {bin(dut.uo_out.value[4:7])}, expected 0b1000"
+    
+    for i in range(len(right_patterns)):
+        dut.ui_in.value = right_patterns[i]
+        await RisingEdge(dut.clk)  # Cycle 1 post-reset
+        await RisingEdge(dut.clk)  # Cycle 2 post-rese
+        await RisingEdge(dut.clk)  # Cycle 3 just in case
+        # cocotb.log.info(f"index:{format(i, '08b')} layer3 [7:0]:{dut.uo_out.value[4:7]}")
+        assert int(dut.uo_out.value[4:7]) == 0b0100, f"Hardcoded weight test failed. Got {bin(dut.uo_out.value[4:7])}, expected 0b0100"
+    
+    for i in range(len(forward_patterns)):
+        dut.ui_in.value = forward_patterns[i]
+        await RisingEdge(dut.clk)  # Cycle 1 post-reset
+        await RisingEdge(dut.clk)  # Cycle 2 post-rese
+        await RisingEdge(dut.clk)  # Cycle 3 just in case
+        # cocotb.log.info(f"index:{format(i, '08b')} layer3 [7:0]:{dut.uo_out.value[4:7]}")
+        assert int(dut.uo_out.value[4:7]) == 0b0010, f"Hardcoded weight test failed. Got {bin(dut.uo_out.value[4:7])}, expected 0b0010"
+
+    for i in range(len(left_patterns)):
+        dut.ui_in.value = left_patterns[i]
+        await RisingEdge(dut.clk)  # Cycle 1 post-reset
+        await RisingEdge(dut.clk)  # Cycle 2 post-rese
+        await RisingEdge(dut.clk)  # Cycle 3 just in case
+        # cocotb.log.info(f"index:{format(i, '08b')} layer3 [7:0]:{dut.uo_out.value[4:7]}")
+        assert int(dut.uo_out.value[4:7]) == 0b0001, f"Hardcoded weight test failed. Got {bin(dut.uo_out.value[4:7])}, expected 0b0001"
+
+
+async def test_weight_loading(dut):
+    """Test dynamic weight loading through bidirectional pins"""
+    cocotb.log.info("Testing weight loading")
+    weights_list = [0b11110000, 0b00001111, 0b00111100, 0b11000011, 
+               0b11110000, 0b00001111, 0b00111100, 0b11000011,  
+               0b11110000, 0b00001111, 0b00111100, 0b11000011]
+    dut.uio_in.value = 0b11110000  # Set bit 3 (load_en) high
+    
+    # Test loading weights, cycling all 12 neurons
+    for i in range(12):
+        await load_weights(dut, i, weights=weights_list[i])
+    
+    # Verify by testing inference
+    test_input = 0b11110000  # Should perfectly original value, since loaded weights are the same
+    expected_output = 0b0000  # Threshold is 5 (0101), sum will be 8
+    
+    dut.ui_in.value = test_input
+    dut.uio_in.value = 0  # Disable weight loading
+    await RisingEdge(dut.clk)  # Wait clock 1
+    await RisingEdge(dut.clk)  # Wait clock 2
+    await RisingEdge(dut.clk)  # Wait clock 3
+    # cocotb.log.info(f"layer3 [7:0]:{dut.uo_out.value.binstr}")
+    assert int(dut.uo_out.value[4:7]) == expected_output, f"Weight loading test failed. Got {dut.uo_out.value[4:7]}, expected {expected_output}"
+
+async def load_weights(dut, neuron_idx, weights):
+    """Helper function to load weights for a specific neuron"""
+    # Load lower 4 bits first
+    dut.uio_in.value = (weights & 0x0F) << 4 | 0b1000
+    await RisingEdge(dut.clk)
+    
+    # Load upper 4 bits
+    dut.uio_in.value = (weights >> 4) << 4 | 0b1000
+    await RisingEdge(dut.clk)
+
+    cocotb.log.info(f"Loaded weights {bin(weights)} to neuron {neuron_idx}")
